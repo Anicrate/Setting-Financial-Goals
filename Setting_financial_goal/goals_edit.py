@@ -7,19 +7,16 @@ def update_goal():
     try:
         print("Welcome to the Goal Update System!")
 
-        # User Authentication 
         user_id = input("Enter your User ID: ").strip()
         conn = get_connection()
         if not conn:
-            print("❌ Could not connect to database.")
+            print("Could not connect to database.")
             return
         cursor = conn.cursor()
-        cursor.execute("SELECT user_id, email_id FROM users WHERE user_id = :1 AND is_loggedin = 'Y'", (user_id,))
+        cursor.execute("SELECT user_id, email_id FROM users WHERE user_id = :1 AND is_loggedin = 1", (user_id,))
         user = cursor.fetchone()
         if not user:
-            print("❌ User is not logged in.")
-            cursor.close()
-            conn.close()
+            print("User is not logged in.")
             return
         print(f"\nLogged in as: {user[1]} (User ID: {user[0]})")
         cursor.execute("SELECT goal_id, goal_name, target_amount, current_amount, status FROM financial_goals WHERE user_id = :1", (user_id,))
@@ -37,12 +34,11 @@ def update_goal():
             return
         cursor = conn.cursor()
 
-        # Goal Selection 
         goal_id = input("Enter the Goal ID you want to edit: ").strip()
         cursor.execute("SELECT * FROM financial_goals WHERE goal_id = :1 AND user_id = :2", (goal_id, user_id))
         goal_info = cursor.fetchone()
         if not goal_info:
-            print("❌ No goal found with that ID for this user.")
+            print("No goal found with that ID for this user.")
             cursor.close()
             conn.close()
             return
@@ -51,7 +47,6 @@ def update_goal():
         for col, val in zip(columns, goal_info):
             print(f"{col}: {val}")
 
-        # Goal Update Options
         print("\nWhat do you want to edit?")
         print("1. Target Amount")
         print("2. Add Amount to Goal")
@@ -68,18 +63,33 @@ def update_goal():
 
         if choice == "1":
             new_value = float(input("Enter new target amount: "))
+            
+            cursor.execute("SELECT current_amount FROM financial_goals WHERE goal_id = :1 AND user_id = :2", (goal_id, user_id))
+            row = cursor.fetchone()
+            if row is None:
+                print("Goal not found.")
+                return
+            current_amount = row[0]
+            
+            if new_value < current_amount:
+                print(f"Target Amount can't be less than current amount (₹{current_amount}).")
+                return
+            
             update_sql = "UPDATE financial_goals SET target_amount = :1, updated_at = CURRENT_TIMESTAMP WHERE goal_id = :2 AND user_id = :3"
+            cursor.execute(update_sql, (new_value, goal_id, user_id))
+            conn.commit()
+
         elif choice == "2":
-            # Add Amount to Goal
+
             add_amount = float(input("Enter amount to add to your goal: "))
-            # Get current_amount and target_amount
+
             cursor.execute("SELECT current_amount, target_amount FROM financial_goals WHERE goal_id = :1 AND user_id = :2", (goal_id, user_id))
             amounts = cursor.fetchone()
             if not amounts:
-                print("❌ Goal not found.")
+                print("Goal not found.")
                 return
             current_amount, target_amount = amounts
-            # Get available balance from transactions (case-insensitive, trimmed)
+
             cursor.execute("SELECT NVL(SUM(amount), 0) FROM transactions WHERE user_id = :1 AND TRIM(LOWER(transaction_type)) = 'credit'", (user_id,))
             total_credit = cursor.fetchone()[0]
             print("=====================================")
@@ -89,33 +99,22 @@ def update_goal():
             available_balance = total_credit - total_debit
             print(f"Available Balance: ₹{available_balance}")
             if add_amount > available_balance:
-                print(f"❌ Insufficient balance. Available: ₹{available_balance}")
+                print(f"Insufficient balance. Available: ₹{available_balance}")
                 return
             new_current_amount = current_amount + add_amount
             if new_current_amount > target_amount:
-                print(f"❌ Cannot add. Final amount ₹{new_current_amount} exceeds target ₹{target_amount}.")
+                print(f"Cannot add. Final amount ₹{new_current_amount} exceeds target ₹{target_amount}.")
                 return
-            # Update current_amount
+
             cursor.execute("UPDATE financial_goals SET current_amount = :1, updated_at = CURRENT_TIMESTAMP WHERE goal_id = :2 AND user_id = :3", (new_current_amount, goal_id, user_id))
-            # Insert debit transaction
-            # Generate transaction_id
-            # cursor.execute("SELECT NVL(MAX(TO_NUMBER(transaction_id)), 0) + 1 FROM transactions")
-            # transaction_id = str(cursor.fetchone()[0]).zfill(5)
-            # description = f"Added to goal {goal_id}"
-            # transaction_sql = """
-            #     INSERT INTO transactions (transaction_id, user_id, amount, description, transaction_type, transaction_time)
-            #     VALUES (:1, :2, :3, :4, :5, CURRENT_TIMESTAMP)
-            # """
-            # cursor.execute(transaction_sql, (transaction_id, user_id, add_amount, description, 'debit'))
-            # conn.commit()
-            # Generate transaction_id (prefix FG + random 3-digit number)
+
             transaction_id = f"FG{random.randint(100, 999)}"
             category_id = 8  # Savings & Investments
 
             cursor.execute("""
                 INSERT INTO transactions (
                     transaction_id, user_id, amount, description, category_id,
-                    transaction_time, payment_mode, payment_to, transaction_type
+                    timestamp, payment_mode, payment_to, transaction_type
                 ) VALUES (
                     :transaction_id, :user_id, :amount, :description, :category_id,
                     CURRENT_TIMESTAMP, 'Self', 'Financial Goal', 'DEBIT'
@@ -123,13 +122,13 @@ def update_goal():
             """, {
                 "transaction_id": transaction_id,
                 "user_id": user_id,
-                "amount": float(add_amount),  # Amount being added to goal
+                "amount": float(add_amount),  
                 "description": f"Added to goal {goal_id}",
                 "category_id": category_id
             })
 
             conn.commit()
-            print(f"✅ ₹{add_amount} added to goal. New saved amount: ₹{new_current_amount}. Transaction recorded.")
+            print(f"₹{add_amount} added to goal. New saved amount: ₹{new_current_amount}. Transaction recorded.")
             return
         elif choice == "3":
             new_value = input("Enter new priority (High/Medium/Low): ").capitalize()
@@ -148,19 +147,19 @@ def update_goal():
             try:
                 start_date = datetime.strptime(new_value, "%Y-%m-%d").date()
             except ValueError:
-                print("❌ Invalid date format.")
+                print("Invalid date format.")
                 return
             today = datetime.now().date()
-            # Get target_date for validation
+
             cursor.execute("SELECT target_date FROM financial_goals WHERE goal_id = :1 AND user_id = :2", (goal_id, user_id))
             result = cursor.fetchone()
             if result:
                 target_date = result[0]
                 if start_date >= target_date:
-                    print("❌ Start date cannot be greater than or equal to target date.")
+                    print("Start date cannot be greater than or equal to target date.")
                     return
                 if start_date < today:
-                    print("❌ Start date cannot be less than today.")
+                    print("Start date cannot be less than today.")
                     return
             update_sql = "UPDATE financial_goals SET start_date = TO_DATE(:1, 'YYYY-MM-DD'), updated_at = CURRENT_TIMESTAMP WHERE goal_id = :2 AND user_id = :3"
         elif choice == "8":
@@ -168,34 +167,34 @@ def update_goal():
             try:
                 target_date = datetime.strptime(new_value, "%Y-%m-%d").date()
             except ValueError:
-                print("❌ Invalid date format.")
+                print("Invalid date format.")
                 return
             today = datetime.now().date()
-            # Get start_date for validation
+
             cursor.execute("SELECT start_date FROM financial_goals WHERE goal_id = :1 AND user_id = :2", (goal_id, user_id))
             result = cursor.fetchone()
             if result:
                 start_date = result[0]
                 if target_date <= today:
-                    print("❌ Target date cannot be less than or equal to today.")
+                    print("Target date cannot be less than or equal to today.")
                     return
                 if start_date and start_date >= target_date:
-                    print("❌ Start date cannot be greater than or equal to target date.")
+                    print("Start date cannot be greater than or equal to target date.")
                     return
             update_sql = "UPDATE financial_goals SET target_date = TO_DATE(:1, 'YYYY-MM-DD'), updated_at = CURRENT_TIMESTAMP WHERE goal_id = :2 AND user_id = :3"
         else:
-            print("❌ Invalid choice.")
+            print("Invalid choice.")
             return
 
         if update_sql:
             cursor.execute(update_sql, (new_value, goal_id, user_id))
             if cursor.rowcount == 0:
-                print("❌ No goal found with that ID for this user.")
+                print("No goal found with that ID for this user.")
             else:
                 conn.commit()
-                print("✅ Goal updated successfully.")
+                print("Goal updated successfully.")
     except Exception as e:
-        print("❌ Error updating goal:", e)
+        print("Error updating goal:", e)
     finally:
         if 'cursor' in locals():
             cursor.close()
