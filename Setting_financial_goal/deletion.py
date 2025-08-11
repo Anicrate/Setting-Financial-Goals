@@ -8,6 +8,14 @@ def delete_goal(user_id):
         cursor = conn.cursor()
 
         cursor.execute("""
+            SELECT is_loggedin FROM users WHERE user_id = :user_id
+        """, {"user_id": user_id})
+        logged_in_status = cursor.fetchone()
+        if not logged_in_status or logged_in_status[0] != 1:
+            print("User is not logged in.")
+            return
+
+        cursor.execute("""
             SELECT goal_id, goal_name, current_amount
             FROM financial_goals
             WHERE user_id = :user_id
@@ -32,11 +40,11 @@ def delete_goal(user_id):
         if not goal_id_to_delete.isdigit():
             print("Invalid Goal ID. Must be a number.")
             return
-        
+
         goal_id_to_delete = int(goal_id_to_delete)
 
         cursor.execute("""
-            SELECT goal_name 
+            SELECT goal_name, current_amount
             FROM financial_goals
             WHERE user_id = :user_id AND goal_id = :goal_id
         """, {"user_id": user_id, "goal_id": goal_id_to_delete})
@@ -46,7 +54,7 @@ def delete_goal(user_id):
             print(f"Goal ID {goal_id_to_delete} not found for your user ID.")
             return
 
-        goal_name = row[0]
+        goal_name, current_amount = row
 
         confirm = input(f"Are you sure you want to delete '{goal_name}' (ID: {goal_id_to_delete})? (Enter 'CONFIRM'): ").strip().upper()
         if confirm != 'CONFIRM':
@@ -58,9 +66,9 @@ def delete_goal(user_id):
             WHERE user_id = :user_id AND goal_id = :goal_id
         """, {"user_id": user_id, "goal_id": goal_id_to_delete})
 
-        # transaction_id = f"FG{datetime.now().strftime('%H%M%S')}"
         transaction_id = f"FG{random.randint(100, 999)}"
-        category_id = 8 # Savings $ Investments
+        category_id = 8  
+
         cursor.execute("""
             INSERT INTO transactions (
                 transaction_id, user_id, amount, description, category_id,
@@ -74,12 +82,12 @@ def delete_goal(user_id):
             "user_id": user_id,
             "category_id": category_id,
             "amount": float(current_amount),
-            "description": f"Credited from FG"
+            "description": f"Credited from FG deletion"
         })
 
         conn.commit()
         print(f"Goal '{goal_name}' (ID: {goal_id_to_delete}) has been deleted successfully.")
-        print(f"Credited amount {current_amount} to account.")
+        print(f"Credited amount ₹{current_amount} to account.")
 
     except Exception as e:
         print("Error during deletion:", e)
