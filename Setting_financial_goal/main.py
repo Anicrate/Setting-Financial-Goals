@@ -1,4 +1,5 @@
-from goals_create import create_new_goal
+# from goals_create import create_new_goal
+from goals_create_procedure import create_new_goal
 from goals_edit import update_goal
 from goals_view import view_goals
 # from deletion import delete_goal 
@@ -32,4 +33,5 @@ def create_financial_goal():
 
 if __name__ == "__main__":
     create_financial_goal()
+
 
